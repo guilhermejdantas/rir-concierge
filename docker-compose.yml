@@ -1,0 +1,87 @@
+name: rir-concierge
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rir-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      # Mount Google credentials read-only. Populate ./secrets before starting.
+      - ./secrets:/secrets:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: rir-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ----------------------------------------------------------------------- #
+  # Optional: self-hosted WhatsApp Web bridge (QR pairing).                 #
+  # Enable with:  docker compose --profile evolution up -d                  #
+  # ----------------------------------------------------------------------- #
+  evolution-api:
+    image: atendai/evolution-api:v2.1.1
+    container_name: rir-evolution
+    profiles: ["evolution"]
+    restart: unless-stopped
+    ports:
+      - "${EVOLUTION_PORT:-8080}:8080"
+    environment:
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-change-me-evolution-key}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: "postgresql"
+      DATABASE_CONNECTION_URI: "postgresql://evolution:evolution@evolution-db:5432/evolution"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: "redis://redis:6379/1"
+      CACHE_LOCAL_ENABLED: "false"
+      WEBHOOK_GLOBAL_URL: "http://app:8000/webhook/whatsapp"
+      WEBHOOK_GLOBAL_ENABLED: "true"
+      WEBHOOK_EVENTS_MESSAGES_UPSERT: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+      evolution-db:
+        condition: service_healthy
+
+  evolution-db:
+    image: postgres:16-alpine
+    container_name: rir-evolution-db
+    profiles: ["evolution"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis-data:
+  evolution-db-data:

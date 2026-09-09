@@ -1,0 +1,269 @@
+{
+  "name": "Rock in Rio 2026 – WhatsApp Festival Concierge",
+  "meta": {
+    "instanceId": "rir-concierge-2026"
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "staticData": null,
+  "pinData": {},
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "seconds", "secondsInterval": 60 }
+          ]
+        }
+      },
+      "id": "cron-poll",
+      "name": "Every 60s",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-820, -40]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "guilherme.dantas.sp@gmail.com",
+          "mode": "list"
+        },
+        "returnAll": true,
+        "options": {
+          "timeMin": "={{ $now.toISO() }}",
+          "timeMax": "={{ $now.plus({ hours: 12 }).toISO() }}",
+          "singleEvents": true,
+          "orderBy": "startTime"
+        }
+      },
+      "id": "gcal-list",
+      "name": "Google Calendar – upcoming",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 3,
+      "position": [-600, -40],
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "GCAL_CRED", "name": "guilherme.dantas.sp@gmail.com" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keep only in-scope festival shows entering the -30 min window and\n// not already alerted (dedupe via workflow static data).\nconst LEAD_MIN = 30;\nconst POIS = {\n  'Palco Mundo': [-22.975420, -43.395110],\n  'Palco Sunset': [-22.973810, -43.397020],\n  'Espaço Favela': [-22.974910, -43.393540],\n  'New Dance Order': [-22.977230, -43.396250],\n  'Gourmet Square': [-22.976100, -43.394800],\n  'Entrada / BRT': [-22.979500, -43.392000]\n};\nfunction resolveStage(text) {\n  const t = (text || '').toLowerCase();\n  if (t.includes('palco mundo')) return 'Palco Mundo';\n  if (t.includes('sunset')) return 'Palco Sunset';\n  if (t.includes('favela')) return 'Espaço Favela';\n  if (t.includes('new dance order') || t.includes('ndo')) return 'New Dance Order';\n  if (t.includes('gourmet')) return 'Gourmet Square';\n  return null;\n}\nconst store = this.getWorkflowStaticData('global');\nstore.alerted = store.alerted || {};\nconst now = Date.now();\nconst out = [];\nfor (const item of items) {\n  const ev = item.json;\n  const summary = ev.summary || '';\n  const location = ev.location || '';\n  const blob = (summary + ' ' + location + ' ' + (ev.description || '')).toLowerCase();\n  if (!blob.includes('rock in rio') && !resolveStage(blob)) continue;\n  const stage = resolveStage(blob);\n  if (!stage) continue;\n  const startIso = ev.start && (ev.start.dateTime || ev.start.date);\n  if (!startIso) continue;\n  const start = new Date(startIso).getTime();\n  const deltaMin = (start - now) / 60000;\n  if (deltaMin <= 0 || deltaMin > LEAD_MIN) continue;\n  if (store.alerted[ev.id]) continue;\n  store.alerted[ev.id] = now;\n  const artist = summary.split(/\\s*[-–—@|:]\\s*/)[0].replace(/rock in rio/ig, '').trim() || summary;\n  const time = new Date(startIso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });\n  out.push({ json: { event_id: ev.id, artist, stage, time, start: startIso } });\n}\nreturn out;"
+      },
+      "id": "filter-due",
+      "name": "Filter due shows (-30m)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-380, -40]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/={{ $env.META_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $env.META_ACCESS_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $env.WHATSAPP_GROUP_ID }}\",\n  \"type\": \"interactive\",\n  \"interactive\": {\n    \"type\": \"list\",\n    \"header\": { \"type\": \"text\", \"text\": \"Rock in Rio 2026\" },\n    \"body\": { \"text\": \"🔔 *Próximo Show:* *{{ $json.artist }}* no *{{ $json.stage }}* às {{ $json.time }}.\\nComo vocês estão no festival? Enviem a localização atual ou escolham um ponto no menu abaixo para calcularmos o tempo de deslocamento.\" },\n    \"action\": {\n      \"button\": \"Fazer check-in\",\n      \"sections\": [ { \"title\": \"Onde vocês estão?\", \"rows\": [\n        { \"id\": \"checkin_palco_sunset\", \"title\": \"📍 Palco Sunset\", \"description\": \"Check-in a partir do Palco Sunset\" },\n        { \"id\": \"checkin_gourmet_square\", \"title\": \"🍔 Gourmet Square\", \"description\": \"Check-in a partir da praça gourmet\" },\n        { \"id\": \"checkin_espaco_favela\", \"title\": \"🍺 Espaço Favela\", \"description\": \"Check-in a partir do Espaço Favela\" },\n        { \"id\": \"checkin_entrada_brt\", \"title\": \"🚪 Entrada / BRT\", \"description\": \"Check-in a partir da entrada principal\" },\n        { \"id\": \"skip_show\", \"title\": \"⏩ Pular Show\", \"description\": \"Não avisar sobre este show\" }\n      ] } ]\n    }\n  }\n}"
+      },
+      "id": "wa-alert",
+      "name": "WhatsApp – send alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-160, -40]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "inbound-webhook",
+      "name": "Inbound WhatsApp Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-820, 320],
+      "webhookId": "rir-inbound"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise Meta inbound payload to { kind, lat, lng, button_id, text }.\nconst body = items[0].json.body || items[0].json;\nconst out = [];\nfor (const entry of (body.entry || [])) {\n  for (const change of (entry.changes || [])) {\n    for (const m of ((change.value || {}).messages || [])) {\n      if (m.type === 'location') {\n        out.push({ json: { kind: 'location', lat: Number(m.location.latitude), lng: Number(m.location.longitude) } });\n      } else if (m.type === 'interactive') {\n        const r = (m.interactive.button_reply || m.interactive.list_reply || {});\n        out.push({ json: { kind: 'button', button_id: r.id, text: r.title } });\n      } else if (m.type === 'text') {\n        out.push({ json: { kind: 'text', text: (m.text || {}).body || '' } });\n      }\n    }\n  }\n}\nreturn out.length ? out : [{ json: { kind: 'ignore' } }];"
+      },
+      "id": "normalise",
+      "name": "Normalise inbound",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-600, 320]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            { "conditions": { "options": { "caseSensitive": false }, "conditions": [ { "leftValue": "={{ $json.kind }}", "rightValue": "location", "operator": { "type": "string", "operation": "equals" } } ] }, "outputKey": "location" },
+            { "conditions": { "options": { "caseSensitive": false }, "conditions": [ { "leftValue": "={{ $json.button_id }}", "rightValue": "checkin_", "operator": { "type": "string", "operation": "startsWith" } } ] }, "outputKey": "checkin_button" },
+            { "conditions": { "options": { "caseSensitive": false }, "conditions": [ { "leftValue": "={{ $json.button_id }}", "rightValue": "delay_15", "operator": { "type": "string", "operation": "equals" } } ] }, "outputKey": "delay" },
+            { "conditions": { "options": { "caseSensitive": false }, "conditions": [ { "leftValue": "={{ ($json.text || '').toLowerCase() }}", "rightValue": "atrasar 15", "operator": { "type": "string", "operation": "contains" } } ] }, "outputKey": "delay" }
+          ]
+        },
+        "options": { "fallbackOutput": "none" }
+      },
+      "id": "route",
+      "name": "Route intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [-380, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resolve the active target stage (from Redis-less static data) and, for a\n// button check-in, substitute the fixed POI coordinates.\nconst POIS = {\n  'checkin_palco_sunset': [-22.973810, -43.397020],\n  'checkin_gourmet_square': [-22.976100, -43.394800],\n  'checkin_espaco_favela': [-22.974910, -43.393540],\n  'checkin_entrada_brt': [-22.979500, -43.392000]\n};\nconst store = this.getWorkflowStaticData('global');\nconst target = store.activeShow || { stage: 'Palco Mundo' };\nconst j = items[0].json;\nlet lat = j.lat, lng = j.lng;\nif (j.button_id && POIS[j.button_id]) { [lat, lng] = POIS[j.button_id]; }\nreturn [{ json: { lat, lng, stage: target.stage } }];"
+      },
+      "id": "prep-matrix",
+      "name": "Prep Distance Matrix",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-160, 240]
+    },
+    {
+      "parameters": {
+        "url": "https://maps.googleapis.com/maps/api/distancematrix/json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "origins", "value": "={{ $json.lat }},{{ $json.lng }}" },
+            { "name": "destinations", "value": "={{ ({'Palco Mundo':'-22.975420,-43.395110','Palco Sunset':'-22.973810,-43.397020','Espaço Favela':'-22.974910,-43.393540','New Dance Order':'-22.977230,-43.396250','Gourmet Square':'-22.976100,-43.394800','Entrada / BRT':'-22.979500,-43.392000'})[$json.stage] }}" },
+            { "name": "mode", "value": "walking" },
+            { "name": "units", "value": "metric" },
+            { "name": "key", "value": "={{ $env.GOOGLE_MAPS_API_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "distance-matrix",
+      "name": "Google Distance Matrix",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [60, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Distance Matrix, fall back to Haversine @ 4.5 km/h.\nfunction haversine(a, b, c, d) {\n  const R = 6371000, r = Math.PI / 180;\n  const p1 = a * r, p2 = c * r, dp = (c - a) * r, dl = (d - b) * r;\n  const x = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;\n  return 2 * R * Math.asin(Math.sqrt(x));\n}\nconst DEST = {'Palco Mundo':[-22.975420,-43.395110],'Palco Sunset':[-22.973810,-43.397020],'Espaço Favela':[-22.974910,-43.393540],'New Dance Order':[-22.977230,-43.396250],'Gourmet Square':[-22.976100,-43.394800],'Entrada / BRT':[-22.979500,-43.392000]};\nconst prev = $('Prep Distance Matrix').first().json;\nconst api = items[0].json;\nlet distance_m, duration_min, method;\ntry {\n  const el = api.rows[0].elements[0];\n  if (el.status !== 'OK') throw new Error(el.status);\n  distance_m = el.distance.value;\n  duration_min = Math.max(1, Math.round(el.duration.value / 60));\n  method = 'distance_matrix';\n} catch (e) {\n  const [dlat, dlng] = DEST[prev.stage];\n  const raw = haversine(prev.lat, prev.lng, dlat, dlng) * 1.25;\n  distance_m = Math.round(raw);\n  duration_min = Math.max(1, Math.ceil(distance_m / (4500 / 60)));\n  method = 'haversine_fallback';\n}\nreturn [{ json: { distance_m, duration_min, method, stage: prev.stage } }];"
+      },
+      "id": "parse-matrix",
+      "name": "Parse / fallback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/={{ $env.META_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $env.META_ACCESS_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $env.WHATSAPP_GROUP_ID }}\",\n  \"type\": \"interactive\",\n  \"interactive\": {\n    \"type\": \"button\",\n    \"body\": { \"text\": \"📍 Vocês estão a {{ $json.distance_m }}m (~{{ $json.duration_min }} min de caminhada) do {{ $json.stage }}. Passagem livre por pontos de hidratação e Bob's no caminho. Desejam manter o horário ou atrasar a agenda em 15 minutos?\" },\n    \"action\": { \"buttons\": [\n      { \"type\": \"reply\", \"reply\": { \"id\": \"keep_schedule\", \"title\": \"Manter Horário\" } },\n      { \"type\": \"reply\", \"reply\": { \"id\": \"delay_15\", \"title\": \"Atrasar 15m\" } }\n    ] }\n  }\n}"
+      },
+      "id": "wa-estimate",
+      "name": "WhatsApp – walk estimate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Look up the active show event id from workflow static data.\nconst store = this.getWorkflowStaticData('global');\nconst show = store.activeShow;\nif (!show) return [];\nreturn [{ json: { event_id: show.event_id, start: show.start, end: show.end, timeZone: 'America/Sao_Paulo' } }];"
+      },
+      "id": "prep-patch",
+      "name": "Prep event patch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-160, 440]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": { "__rl": true, "value": "guilherme.dantas.sp@gmail.com", "mode": "list" },
+        "eventId": "={{ $json.event_id }}",
+        "updateFields": {
+          "start": "={{ $now.fromISO($json.start).plus({ minutes: 15 }).toISO() }}",
+          "end": "={{ $now.fromISO($json.end).plus({ minutes: 15 }).toISO() }}"
+        }
+      },
+      "id": "gcal-patch",
+      "name": "Google Calendar – +15 min",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 3,
+      "position": [60, 440],
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "GCAL_CRED", "name": "guilherme.dantas.sp@gmail.com" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/={{ $env.META_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $env.META_ACCESS_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $env.WHATSAPP_GROUP_ID }}\",\n  \"type\": \"text\",\n  \"text\": { \"body\": \"✅ Agenda ajustada: o próximo show agora começa 15 minutos mais tarde. Curtam sem pressa!\" }\n}"
+      },
+      "id": "wa-reschedule",
+      "name": "WhatsApp – confirm reschedule",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [280, 440]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true }"
+      },
+      "id": "respond",
+      "name": "200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-160, 620]
+    }
+  ],
+  "connections": {
+    "Every 60s": { "main": [[{ "node": "Google Calendar – upcoming", "type": "main", "index": 0 }]] },
+    "Google Calendar – upcoming": { "main": [[{ "node": "Filter due shows (-30m)", "type": "main", "index": 0 }]] },
+    "Filter due shows (-30m)": { "main": [[{ "node": "WhatsApp – send alert", "type": "main", "index": 0 }]] },
+    "Inbound WhatsApp Webhook": { "main": [[{ "node": "Normalise inbound", "type": "main", "index": 0 }]] },
+    "Normalise inbound": { "main": [[{ "node": "Route intent", "type": "main", "index": 0 }, { "node": "200 OK", "type": "main", "index": 0 }]] },
+    "Route intent": {
+      "main": [
+        [{ "node": "Prep Distance Matrix", "type": "main", "index": 0 }],
+        [{ "node": "Prep Distance Matrix", "type": "main", "index": 0 }],
+        [{ "node": "Prep event patch", "type": "main", "index": 0 }],
+        [{ "node": "Prep event patch", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prep Distance Matrix": { "main": [[{ "node": "Google Distance Matrix", "type": "main", "index": 0 }]] },
+    "Google Distance Matrix": { "main": [[{ "node": "Parse / fallback", "type": "main", "index": 0 }]] },
+    "Parse / fallback": { "main": [[{ "node": "WhatsApp – walk estimate", "type": "main", "index": 0 }]] },
+    "Prep event patch": { "main": [[{ "node": "Google Calendar – +15 min", "type": "main", "index": 0 }]] },
+    "Google Calendar – +15 min": { "main": [[{ "node": "WhatsApp – confirm reschedule", "type": "main", "index": 0 }]] }
+  }
+}

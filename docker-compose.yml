@@ -9,6 +9,13 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # Container-network overrides — these always win over .env, which may hold
+      # localhost values for running the app directly in a local venv.
+      REDIS_URL: redis://redis:6379/0
+      GOOGLE_OAUTH_CLIENT_FILE: /secrets/oauth_client.json
+      GOOGLE_OAUTH_TOKEN_FILE: /secrets/oauth_token.json
+      GOOGLE_SERVICE_ACCOUNT_FILE: /secrets/service_account.json
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:

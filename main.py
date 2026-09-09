@@ -218,6 +218,8 @@ async def _dispatch(concierge: Concierge, msg: Any) -> None:
 # --------------------------------------------------------------------------- #
 # Browser geolocation fallback                                                 #
 # --------------------------------------------------------------------------- #
+# NOTE: this is a plain string with a single ``__USER_ID_JSON__`` placeholder
+# substituted via ``str.replace`` — NOT ``str.format`` — so braces are literal.
 _CHECKIN_HTML = """<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -225,16 +227,16 @@ _CHECKIN_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Check-in Rock in Rio</title>
 <style>
-  body {{ font-family: -apple-system, system-ui, sans-serif; margin: 0;
+  body { font-family: -apple-system, system-ui, sans-serif; margin: 0;
          background: #0b0b12; color: #f4f4f7; display: flex; min-height: 100vh;
-         align-items: center; justify-content: center; }}
-  main {{ max-width: 380px; padding: 28px; text-align: center; }}
-  h1 {{ font-size: 1.3rem; margin: 0 0 8px; }}
-  p {{ opacity: .8; line-height: 1.45; }}
-  button {{ margin-top: 18px; padding: 14px 22px; font-size: 1rem; border: 0;
-           border-radius: 999px; background: #e4002b; color: #fff; font-weight: 700; }}
-  #out {{ margin-top: 16px; font-size: .92rem; min-height: 1.4em; }}
-  .ok {{ color: #59d98a; }} .err {{ color: #ff6b6b; }}
+         align-items: center; justify-content: center; }
+  main { max-width: 380px; padding: 28px; text-align: center; }
+  h1 { font-size: 1.3rem; margin: 0 0 8px; }
+  p { opacity: .8; line-height: 1.45; }
+  button { margin-top: 18px; padding: 14px 22px; font-size: 1rem; border: 0;
+           border-radius: 999px; background: #e4002b; color: #fff; font-weight: 700; }
+  #out { margin-top: 16px; font-size: .92rem; min-height: 1.4em; }
+  .ok { color: #59d98a; } .err { color: #ff6b6b; }
 </style>
 </head>
 <body>
@@ -246,44 +248,44 @@ _CHECKIN_HTML = """<!doctype html>
   <div id="out"></div>
 </main>
 <script>
-  var USER_ID = {user_id_json};
+  var USER_ID = __USER_ID_JSON__;
   var out = document.getElementById('out');
-  document.getElementById('go').addEventListener('click', function () {{
-    if (!navigator.geolocation) {{
+  document.getElementById('go').addEventListener('click', function () {
+    if (!navigator.geolocation) {
       out.textContent = 'Geolocalização não suportada neste navegador.';
       out.className = 'err';
       return;
-    }}
+    }
     out.textContent = 'Obtendo posição…';
     out.className = '';
-    navigator.geolocation.getCurrentPosition(function (pos) {{
-      var body = {{
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      var body = {
         user_id: USER_ID,
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
         accuracy_m: pos.coords.accuracy
-      }};
-      fetch('/api/checkin', {{
+      };
+      fetch('/api/checkin', {
         method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
-      }}).then(function (r) {{
-        if (r.ok) {{
+      }).then(function (r) {
+        if (r.ok) {
           out.textContent = 'Localização enviada! Pode voltar ao WhatsApp. ✅';
           out.className = 'ok';
-        }} else {{
+        } else {
           out.textContent = 'Falha ao enviar (HTTP ' + r.status + ').';
           out.className = 'err';
-        }}
-      }}).catch(function () {{
+        }
+      }).catch(function () {
         out.textContent = 'Erro de rede ao enviar.';
         out.className = 'err';
-      }});
-    }}, function (err) {{
+      });
+    }, function (err) {
       out.textContent = 'Não foi possível obter a localização: ' + err.message;
       out.className = 'err';
-    }}, {{ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }});
-  }});
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  });
 </script>
 </body>
 </html>
@@ -295,7 +297,7 @@ async def checkin_page(u: str = Query(..., min_length=1, max_length=128)) -> HTM
     """Serve the minimal HTML5 geolocation check-in page for user ``u``."""
     import json as _json
 
-    html = _CHECKIN_HTML.replace("{user_id_json}", _json.dumps(u))
+    html = _CHECKIN_HTML.replace("__USER_ID_JSON__", _json.dumps(u))
     return HTMLResponse(html)
 
 

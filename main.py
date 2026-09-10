@@ -2,7 +2,9 @@
 
 Endpoints
 ---------
-``GET  /healthz``              – liveness/readiness probe.
+``GET  /health``               – liveness/readiness probe.
+                                (NOT ``/healthz`` — Google Front End on Cloud
+                                Run intercepts that exact path.)
 ``GET  /webhook/whatsapp``     – Meta verification handshake (hub.challenge).
 ``POST /webhook/whatsapp``     – inbound message + button router.
 ``GET  /checkin``              – HTML5 geolocation fallback page.
@@ -123,8 +125,8 @@ app = FastAPI(
 # --------------------------------------------------------------------------- #
 # Health                                                                       #
 # --------------------------------------------------------------------------- #
-@app.get("/healthz", response_class=JSONResponse)
-async def healthz() -> dict[str, Any]:
+@app.get("/health", response_class=JSONResponse)
+async def health() -> dict[str, Any]:
     """Report process health and state-store connectivity."""
     store_ok = False
     try:

@@ -108,7 +108,7 @@ Add the Distance Matrix API key to `.env` as `GOOGLE_MAPS_API_KEY`.
 ### 5. Launch
 ```bash
 docker compose up -d --build
-curl -s localhost:8000/healthz | jq
+curl -s localhost:8000/health | jq
 ```
 
 ### 6. Register the webhook
@@ -250,7 +250,7 @@ To redeploy after a code or `.env` change, just run the script again.
 Tail logs / check status:
 ```bash
 gcloud run services logs tail rir-concierge --region southamerica-east1
-curl -s https://<url>/healthz
+curl -s https://<url>/health
 ```
 
 ---
@@ -263,7 +263,7 @@ set (`delay_15` / `keep_schedule` / `skip_show` / `status` / `none`) with a JSON
 schema and a confidence threshold (`GEMINI_MIN_CONFIDENCE`, default 0.75). Below
 the threshold — or on any SDK/network error, or with no key — the deterministic
 keyword router decides. The model never writes group messages; wording stays in
-the concierge templates. `GET /healthz` shows `"reasoning": "gemini"` or
+the concierge templates. `GET /health` shows `"reasoning": "gemini"` or
 `"keyword-only"`.
 
 ### 3-minute setup

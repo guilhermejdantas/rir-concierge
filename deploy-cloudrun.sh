@@ -120,6 +120,6 @@ cat <<EOF
 DONE.
   Webhook (Meta / Evolution):  ${URL}/webhook/whatsapp
   Verify token:                (value of WHATSAPP_VERIFY_TOKEN in .env)
-  Health:                      ${URL}/healthz
+  Health:                      ${URL}/health
   Web check-in:                ${URL}/checkin?u=<id>
 EOF

@@ -93,12 +93,7 @@ class GeminiReasoner:
                     response_mime_type="application/json",
                     response_schema=IntentResult,
                     temperature=0.0,
-                    max_output_tokens=200,
-                    # We only want structured output, never tool calls; disabling
-                    # AFC also silences a noisy SDK warning.
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        disable=True
-                    ),
+                    max_output_tokens=800,
                 ),
             )
         except Exception:  # noqa: BLE001 - fall back to deterministic routing
@@ -108,16 +103,39 @@ class GeminiReasoner:
         parsed: Optional[IntentResult] = getattr(resp, "parsed", None)
         if isinstance(parsed, IntentResult):
             return parsed
-        # Some SDK versions return a list or a dict; be defensive.
-        try:
-            if isinstance(parsed, list) and parsed:
+        if isinstance(parsed, list) and parsed:
+            try:
                 return IntentResult.model_validate(parsed[0])
-            if isinstance(parsed, dict):
+            except (ValueError, TypeError):
+                pass
+        if isinstance(parsed, dict):
+            try:
                 return IntentResult.model_validate(parsed)
-            if resp.text:
-                return IntentResult.model_validate_json(resp.text)
-        except (ValueError, TypeError):
-            logger.warning("Unparseable Gemini response: %r", getattr(resp, "text", None))
+            except (ValueError, TypeError):
+                pass
+        return self._salvage_json(getattr(resp, "text", None))
+
+    @staticmethod
+    def _salvage_json(raw: Optional[str]) -> IntentResult:
+        """Best-effort recovery when the model wraps JSON in prose / fences."""
+        if not raw:
+            return IntentResult(intent="none", confidence=0.0)
+        import json as _json
+        import re
+
+        candidates: list[str] = []
+        fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.S)
+        if fence:
+            candidates.append(fence.group(1))
+        brace = re.search(r"\{.*\}", raw, re.S)
+        if brace:
+            candidates.append(brace.group(0))
+        for cand in candidates:
+            try:
+                return IntentResult.model_validate(_json.loads(cand))
+            except (ValueError, TypeError):
+                continue
+        logger.warning("Unparseable Gemini response: %r", raw[:200])
         return IntentResult(intent="none", confidence=0.0)
 
     def is_confident(self, result: IntentResult) -> bool:

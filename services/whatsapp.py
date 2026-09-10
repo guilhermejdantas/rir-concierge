@@ -374,60 +374,88 @@ class WhatsAppService:
         return out
 
     def _parse_evolution(self, payload: dict[str, Any]) -> list[InboundMessage]:
-        # Evolution emits one event per webhook call: {"event": "...", "data": {...}}
-        data = payload.get("data") or payload
-        key = data.get("key", {})
-        chat_id = key.get("remoteJid", "")
+        """Normalise an Evolution API webhook body.
+
+        Evolution posts ``{"event": "...", "instance": "...", "data": ...}``.
+        Only ``messages.upsert`` events carry user input; ``data`` may be a
+        single message object, a list of them, or ``{"messages": [...]}``.
+        Non-message events (connection.update, qrcode.updated, ...) and our own
+        outbound echoes (``key.fromMe``) yield no :class:`InboundMessage`.
+        """
+        event = str(payload.get("event", "")).lower().replace("_", ".")
+        if event and event not in {"messages.upsert", "messages.update", "send.message"}:
+            return []
+
+        data = payload.get("data", payload)
+        if isinstance(data, dict) and isinstance(data.get("messages"), list):
+            records = data["messages"]
+        elif isinstance(data, list):
+            records = data
+        elif isinstance(data, dict):
+            records = [data]
+        else:
+            return []
+
+        out: list[InboundMessage] = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            parsed = self._evolution_one(record)
+            if parsed is not None:
+                out.append(parsed)
+        return out
+
+    @staticmethod
+    def _evolution_one(record: dict[str, Any]) -> Optional[InboundMessage]:
+        """Convert one Evolution message record to an :class:`InboundMessage`."""
+        key = record.get("key") or {}
+        if key.get("fromMe"):
+            return None  # our own outbound, echoed back
+        chat_id = key.get("remoteJid", "") or ""
         sender = key.get("participant") or chat_id
-        message = data.get("message", {}) or {}
+        message = record.get("message") or {}
+        if not isinstance(message, dict):
+            return None
 
         if "locationMessage" in message:
-            loc = message["locationMessage"]
-            return [
-                InboundMessage(
-                    kind="location",
-                    sender=sender,
-                    chat_id=chat_id,
-                    latitude=_to_float(loc.get("degreesLatitude")),
-                    longitude=_to_float(loc.get("degreesLongitude")),
-                    raw=data,
-                )
-            ]
+            loc = message["locationMessage"] or {}
+            return InboundMessage(
+                kind="location", sender=sender, chat_id=chat_id,
+                latitude=_to_float(loc.get("degreesLatitude")),
+                longitude=_to_float(loc.get("degreesLongitude")),
+                raw=record,
+            )
         if "buttonsResponseMessage" in message:
-            br = message["buttonsResponseMessage"]
-            return [
-                InboundMessage(
-                    kind="button",
-                    sender=sender,
-                    chat_id=chat_id,
-                    button_id=br.get("selectedButtonId"),
-                    text=br.get("selectedDisplayText"),
-                    raw=data,
-                )
-            ]
+            br = message["buttonsResponseMessage"] or {}
+            return InboundMessage(
+                kind="button", sender=sender, chat_id=chat_id,
+                button_id=br.get("selectedButtonId"),
+                text=br.get("selectedDisplayText"), raw=record,
+            )
         if "templateButtonReplyMessage" in message:
-            tr = message["templateButtonReplyMessage"]
-            return [
-                InboundMessage(
-                    kind="button",
-                    sender=sender,
-                    chat_id=chat_id,
-                    button_id=tr.get("selectedId"),
-                    text=tr.get("selectedDisplayText"),
-                    raw=data,
-                )
-            ]
+            tr = message["templateButtonReplyMessage"] or {}
+            return InboundMessage(
+                kind="button", sender=sender, chat_id=chat_id,
+                button_id=tr.get("selectedId"),
+                text=tr.get("selectedDisplayText"), raw=record,
+            )
+        if "listResponseMessage" in message:
+            lr = message["listResponseMessage"] or {}
+            row = (lr.get("singleSelectReply") or {})
+            return InboundMessage(
+                kind="button", sender=sender, chat_id=chat_id,
+                button_id=row.get("selectedRowId"),
+                text=lr.get("title"), raw=record,
+            )
         text = (
             message.get("conversation")
             or (message.get("extendedTextMessage") or {}).get("text")
         )
-        if text is not None:
-            return [
-                InboundMessage(
-                    kind="text", sender=sender, chat_id=chat_id, text=text, raw=data
-                )
-            ]
-        return [InboundMessage(kind="unknown", sender=sender, chat_id=chat_id, raw=data)]
+        if text:
+            return InboundMessage(
+                kind="text", sender=sender, chat_id=chat_id, text=text, raw=record
+            )
+        return None
 
 
 def _to_float(value: Any) -> Optional[float]:

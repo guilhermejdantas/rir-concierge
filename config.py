@@ -142,7 +142,11 @@ class Settings(BaseSettings):
     # -- Gemini reasoning engine (Google AI Studio) --------------- #
     # Optional. Empty key => the deterministic keyword router is used as-is.
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    # gemini-3.5-flash: verified working on the AI Studio free tier (2026-09).
+    # Alternatives via GEMINI_MODEL: "gemini-flash-latest" (auto-tracks newest,
+    # but newest ids are often capacity-limited), or a newer pinned id once it
+    # stabilises. The concierge's real volume is a handful of calls per festival.
+    gemini_model: str = "gemini-3.5-flash"
     gemini_min_confidence: float = Field(
         default=0.75, ge=0.0, le=1.0,
         description="Minimum classifier confidence before an intent is acted on; "

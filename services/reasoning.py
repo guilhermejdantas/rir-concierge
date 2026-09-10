@@ -94,6 +94,11 @@ class GeminiReasoner:
                     response_schema=IntentResult,
                     temperature=0.0,
                     max_output_tokens=200,
+                    # We only want structured output, never tool calls; disabling
+                    # AFC also silences a noisy SDK warning.
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        disable=True
+                    ),
                 ),
             )
         except Exception:  # noqa: BLE001 - fall back to deterministic routing

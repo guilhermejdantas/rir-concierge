@@ -105,7 +105,7 @@ $envVars = @(
   "META_PHONE_NUMBER_ID=$(Val 'META_PHONE_NUMBER_ID' '')",
   "EVOLUTION_BASE_URL=$(Val 'EVOLUTION_BASE_URL' '')",
   "EVOLUTION_INSTANCE=$(Val 'EVOLUTION_INSTANCE' 'rir-concierge')",
-  "GEMINI_MODEL=$(Val 'GEMINI_MODEL' 'gemini-2.5-flash')"
+  "GEMINI_MODEL=$(Val 'GEMINI_MODEL' 'gemini-3.5-flash')"
 ) -join "^|^"
 
 $secretMounts = @(

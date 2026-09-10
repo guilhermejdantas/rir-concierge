@@ -76,6 +76,59 @@ async def _poll_alerts() -> None:
         logger.exception("Alert poll iteration failed.")
 
 
+async def _send_announcement(path: str) -> None:
+    """One-off scheduler job: post a static message file to the group."""
+    _, _, whatsapp = state.build_concierge()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            body = fh.read().strip()
+        async with whatsapp:
+            await whatsapp.send_text(body)
+        logger.info("Announcement sent: %s", path)
+    except Exception:  # noqa: BLE001
+        logger.exception("Announcement %s failed to send.", path)
+
+
+def _schedule_announcements(scheduler: "AsyncIOScheduler", settings: Settings) -> None:
+    """Register a one-off ``date`` job for each future-dated announcement file.
+
+    Files live in ``announcements/`` and are named
+    ``YYYY-MM-DD_HHMM_slug.txt`` (time in ``FESTIVAL_TIMEZONE``). Past-dated
+    files are skipped; the job id is the filename so a restart never double-books.
+    """
+    import re
+    from datetime import datetime
+    from pathlib import Path
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(settings.festival_timezone)
+    now = datetime.now(tz)
+    folder = Path(__file__).parent / "announcements"
+    if not folder.is_dir():
+        return
+    pattern = re.compile(r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})_.+\.txt$")
+    for file in sorted(folder.glob("*.txt")):
+        m = pattern.match(file.name)
+        if not m:
+            logger.warning("Announcement file ignored (bad name): %s", file.name)
+            continue
+        y, mo, d, hh, mm = (int(x) for x in m.groups())
+        when = datetime(y, mo, d, hh, mm, tzinfo=tz)
+        if when <= now:
+            logger.info("Announcement %s is in the past; skipping.", file.name)
+            continue
+        scheduler.add_job(
+            _send_announcement,
+            "date",
+            run_date=when,
+            args=[str(file)],
+            id=f"announce:{file.name}",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+        logger.info("Announcement scheduled: %s at %s", file.name, when.isoformat())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Create and tear down shared resources."""
@@ -95,6 +148,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_instances=1,
         coalesce=True,
     )
+    _schedule_announcements(state.scheduler, settings)
     state.scheduler.start()
     logger.info(
         "Concierge up. provider=%s calendar=%s poll=%ss lead=%smin "

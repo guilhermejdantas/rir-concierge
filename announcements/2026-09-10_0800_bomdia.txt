@@ -1,0 +1,37 @@
+🎸✨ *BOM DIA, GALERA! O CONCIERGE DO ROCK IN RIO ACORDOU!* 🤖🎉
+
+Passando aqui para dar uma notícia oficial para a @Raquel e o @David: o *Guilherme* passou a madrugada preparando uma surpresa tecnológica de outro nível para a nossa viagem ao festival! 🚀🕶️
+
+A partir de agora, este grupo conta com um *Assistente Pessoal e Concierge Inteligente 24/7* que vai cuidar da gente durante todos os dias do Rock in Rio (11 a 13 de setembro)!
+
+---
+
+🎯 *O QUE ELE VAI FAZER POR NÓS NA CIDADE DO ROCK:*
+
+⏰ *1. Sentinela de Shows (-30 Minutos)*
+• Meia hora antes de cada uma das 15 apresentações que escolhemos, o bot vai apitar aqui no grupo avisando quem vai tocar e em qual palco!
+
+📍 *2. Radar de Caminhada & GPS em Tempo Real*
+• Bateu dúvida de quanto tempo falta para chegar? Basta mandar a sua localização atual no grupo ou clicar no botão do palco. Ele calcula na hora os minutos a pé até o destino!
+• Se bater aquela fome no caminho, ele avisa onde tem ponto de Chopp Heineken ou Bob's na rota! 🍔🍻
+
+📅 *3. Reagendamento Mágico da Agenda pelo WhatsApp*
+• A fila do banheiro ou da comida atrasou? Não tem estresse. Basta mandar no grupo: _"vamos atrasar 15m"_ ou _"atrasar um pouco"_. O motor do Gemini entende na hora e atualiza o horário na Google Agenda de todo mundo automaticamente!
+
+📄 *4. Central de Acessos Imediata*
+• Todos os nossos ingressos, transfer e o comprovante Pix de R$ 338 da Zig (para comer e beber) já estão linkados na memória dele para acesso com 1 toque!
+
+---
+
+⚙️ *COMO ISSO FOI CONSTRUÍDO (NOS BASTIDORES):*
+Para fazer isso rodar 100% na nuvem sem precisar de computador ligado no festival:
+• 🧠 *Cérebro*: Motor de raciocínio generativo do *Google Gemini* (via Google AI Studio).
+• ☁️ *Nuvem*: Infraestrutura serverless no *Google Cloud Run* em São Paulo.
+• 📅 *Conexão*: Integração direta com *Google Calendar & Google Maps APIs*.
+• 🐢 *Engenharia*: Containers gerenciados com *Docker & Gordon*, orquestração *N8N* e código arquitetado via *Claude Code*!
+
+---
+
+🎪 Preparem a energia, os tênis confortáveis e a voz: a nossa logística vai ser a mais moderna, divertida e tranquila de toda a Cidade do Rock!
+
+Qualquer dúvida, mandem um *"status"* aqui que o Concierge responde! 🤘🔥

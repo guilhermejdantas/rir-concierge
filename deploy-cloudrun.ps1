@@ -46,11 +46,16 @@ Write-Host "==> Project $ProjectId / region $Region / service $Service" -Foregro
 gcloud config set project $ProjectId | Out-Null
 
 # ---- Enable APIs ------------------------------------------------------- #
-Write-Host "==> Enabling APIs"
+Write-Host "==> Enabling required APIs"
 gcloud services enable `
   run.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com `
-  artifactregistry.googleapis.com calendar-json.googleapis.com `
-  distance-matrix-backend.googleapis.com
+  artifactregistry.googleapis.com
+Write-Host "==> Enabling optional APIs (calendar, distance matrix) — non-fatal"
+try {
+  gcloud services enable calendar-json.googleapis.com distance-matrix-backend.googleapis.com 2>$null
+} catch {
+  Write-Warning "Could not enable an optional API: $($_.Exception.Message)"
+}
 
 # ---- Secrets --------------------------------------------------------- #
 function Set-Secret([string] $name, [string] $value, [string] $fromFile) {

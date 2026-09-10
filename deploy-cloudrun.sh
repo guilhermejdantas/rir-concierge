@@ -27,11 +27,13 @@ val() { local v="${!1:-}"; printf '%s' "${v:-${2:-}}"; }
 echo "==> Project $PROJECT_ID / region $REGION / service $SERVICE"
 gcloud config set project "$PROJECT_ID" >/dev/null
 
-echo "==> Enabling APIs"
+echo "==> Enabling required APIs"
 gcloud services enable \
   run.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com \
-  artifactregistry.googleapis.com calendar-json.googleapis.com \
-  distance-matrix-backend.googleapis.com
+  artifactregistry.googleapis.com
+echo "==> Enabling optional APIs (calendar, distance matrix) — non-fatal"
+gcloud services enable calendar-json.googleapis.com distance-matrix-backend.googleapis.com \
+  || echo "   (skipped — enable manually if you use a Maps API key)"
 
 # ---- Secrets --------------------------------------------------------------- #
 set_secret() { # name  value  [file]

@@ -75,8 +75,20 @@ class WhatsAppService:
     # ================================================================== #
     # Outbound                                                            #
     # ================================================================== #
-    async def send_text(self, text: str, *, chat_id: Optional[str] = None) -> None:
-        """Send a plain text message to ``chat_id`` (defaults to the group)."""
+    async def send_text(
+        self,
+        text: str,
+        *,
+        chat_id: Optional[str] = None,
+        mentions: Optional[list[str]] = None,
+    ) -> None:
+        """Send a plain text message to ``chat_id`` (defaults to the group).
+
+        ``mentions`` is a list of bare phone numbers (or full JIDs); for the
+        Evolution provider they become WhatsApp @-mentions (the text must
+        already contain ``@<number>`` for the client to render them). Meta text
+        messages do not support mentions, so the list is ignored there.
+        """
         target = chat_id or self._settings.whatsapp_group_id
         if self._settings.whatsapp_provider == "meta":
             await self._meta_post(
@@ -89,10 +101,12 @@ class WhatsAppService:
                 }
             )
         else:
-            await self._evolution_post(
-                "message/sendText",
-                {"number": target, "text": text},
-            )
+            payload: dict[str, Any] = {"number": target, "text": text}
+            if mentions:
+                payload["mentioned"] = [
+                    m if "@" in m else f"{m}@s.whatsapp.net" for m in mentions
+                ]
+            await self._evolution_post("message/sendText", payload)
 
     async def send_buttons(
         self,

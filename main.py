@@ -77,14 +77,21 @@ async def _poll_alerts() -> None:
 
 
 async def _send_announcement(path: str) -> None:
-    """One-off scheduler job: post a static message file to the group."""
+    """One-off scheduler job: post a static message file to the group.
+
+    Any ``@<digits>`` token in the file (10-13 digit phone number) becomes a
+    real WhatsApp @-mention.
+    """
+    import re
+
     _, _, whatsapp = state.build_concierge()
     try:
         with open(path, encoding="utf-8") as fh:
             body = fh.read().strip()
+        mentions = re.findall(r"@(\d{10,13})\b", body)
         async with whatsapp:
-            await whatsapp.send_text(body)
-        logger.info("Announcement sent: %s", path)
+            await whatsapp.send_text(body, mentions=mentions or None)
+        logger.info("Announcement sent: %s (mentions=%s)", path, mentions)
     except Exception:  # noqa: BLE001
         logger.exception("Announcement %s failed to send.", path)
 

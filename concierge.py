@@ -9,7 +9,13 @@ logic:
 * :meth:`handle_skip`          – marks the active show as skipped for this session.
 
 Ephemeral state (which show an alert is currently open for, dedupe locks) lives
-in Redis so multiple app replicas stay consistent.
+in a :class:`~services.state.StateStore` — Redis when configured (so multiple
+app replicas share the alert lock), otherwise an in-process fallback.
+
+Free-text group messages are routed by a deterministic keyword matcher. When a
+:class:`~services.reasoning.GeminiReasoner` is supplied (Google AI Studio API
+key present) it is consulted first as a fuzzy intent classifier, with the
+keyword matcher as the guaranteed fallback.
 """
 from __future__ import annotations
 
@@ -19,12 +25,12 @@ from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-import redis.asyncio as aioredis
-
 from config import BUTTON_TO_POI, FESTIVAL_POIS, QUICK_CHECKIN_BUTTONS, Settings
 from models import Coordinates, FestivalShow, WalkEstimate
 from services.google_calendar import CalendarError, GoogleCalendarService
 from services.maps import MapsService
+from services.reasoning import GeminiReasoner
+from services.state import StateStore
 from services.whatsapp import WhatsAppService
 
 logger = logging.getLogger(__name__)
@@ -44,13 +50,15 @@ class Concierge:
         calendar: GoogleCalendarService,
         maps: MapsService,
         whatsapp: WhatsAppService,
-        redis: aioredis.Redis,
+        redis: StateStore,
+        reasoner: Optional[GeminiReasoner] = None,
     ) -> None:
         self._s = settings
         self._cal = calendar
         self._maps = maps
         self._wa = whatsapp
         self._redis = redis
+        self._reasoner = reasoner
         self._tz = ZoneInfo(settings.festival_timezone)
 
     # ================================================================== #
@@ -245,17 +253,52 @@ class Concierge:
     # Text intent routing                                                 #
     # ================================================================== #
     async def handle_text(self, text: str) -> None:
-        """Interpret a free-text group message for known intents."""
+        """Interpret a free-text group message and act on a recognised intent.
+
+        Resolution order:
+          1. Gemini classifier (if enabled and confident) →
+          2. deterministic keyword matcher →
+          3. stay silent (it is a group chat).
+        """
+        intent = await self._resolve_intent(text)
+        if intent == "delay_15":
+            await self.handle_delay()
+        elif intent == "keep_schedule":
+            await self.handle_keep()
+        elif intent == "skip_show":
+            await self.handle_skip()
+        elif intent == "status":
+            await self._send_status()
+
+    async def _resolve_intent(self, text: str) -> str:
+        """Return one of the concierge intent labels, or ``"none"``."""
+        if self._reasoner is not None and self._reasoner.enabled:
+            try:
+                result = await self._reasoner.classify_intent(text)
+            except Exception:  # noqa: BLE001 - never let the model break routing
+                logger.warning("Reasoner errored; using keyword router.", exc_info=True)
+            else:
+                if self._reasoner.is_confident(result):
+                    logger.info(
+                        "Gemini intent=%s conf=%.2f for %r",
+                        result.intent, result.confidence, text[:80],
+                    )
+                    return result.intent
+        return self._keyword_intent(text)
+
+    @staticmethod
+    def _keyword_intent(text: str) -> str:
+        """Deterministic fallback classifier."""
         low = text.strip().lower()
         if "atrasar 15m" in low or "atrasar 15 minutos" in low or "atrasar 15" in low:
-            await self.handle_delay()
-        elif low in {"manter horario", "manter horário", "manter"}:
-            await self.handle_keep()
-        elif low in {"pular show", "pular"}:
-            await self.handle_skip()
-        elif low in {"status", "agenda"}:
-            await self._send_status()
-        # otherwise: stay silent (it's a group chat).
+            return "delay_15"
+        if low in {"manter horario", "manter horário", "manter"}:
+            return "keep_schedule"
+        if low in {"pular show", "pular"}:
+            return "skip_show"
+        if low in {"status", "agenda"}:
+            return "status"
+        return "none"
 
     async def _send_status(self) -> None:
         try:

@@ -206,3 +206,88 @@ The webhook path is `/webhook/whatsapp`.
 
 See [`ZAPIER_SETUP.md`](ZAPIER_SETUP.md). Recommended only for a short,
 low-volume trial — calendar polling alone burns the task quota quickly.
+
+---
+
+## Deploy to Google Cloud Run (southamerica-east1)
+
+Instead of running Docker locally, deploy the same container to Cloud Run with a
+public HTTPS URL for the Meta / Evolution webhook.
+
+### Architecture notes
+- **One always-on instance** (`--min-instances 1 --max-instances 1
+  --no-cpu-throttling`) so the in-process APScheduler keeps polling the calendar
+  between requests. Scaling past one instance would need a shared Redis (see
+  `REDIS_URL`); at one instance the built-in in-process state store is used and
+  `REDIS_URL` is left empty.
+- **Secrets** (`oauth_token.json`, Maps key, Meta token, verify token, Gemini
+  key) go to **Secret Manager**; the deploy script upserts them from `.env` /
+  `secrets/` and grants the runtime service account `secretAccessor`.
+- **Calendar auth** uses the OAuth *authorized-user* token directly — no service
+  account impersonation — so the Cloud Run identity only needs Secret Manager.
+
+### One command
+
+```powershell
+# Windows
+./deploy-cloudrun.ps1 -ProjectId rir-concierge-2026
+```
+```bash
+# macOS / Linux
+./deploy-cloudrun.sh rir-concierge-2026
+```
+
+Prerequisites: `gcloud` CLI installed and `gcloud auth login` as
+guilherme.dantas.sp@gmail.com; `.env` filled; `secrets/oauth_token.json`
+present (run `scripts/google_oauth_bootstrap.py` once — see above).
+
+The script prints the service URL and the webhook URL
+(`https://<url>/webhook/whatsapp`) and writes the URL back into the service as
+`PUBLIC_BASE_URL`.
+
+To redeploy after a code or `.env` change, just run the script again.
+
+Tail logs / check status:
+```bash
+gcloud run services logs tail rir-concierge --region southamerica-east1
+curl -s https://<url>/healthz
+```
+
+---
+
+## Gemini reasoning engine (Google AI Studio)
+
+Optional. With `GEMINI_API_KEY` set, free-text group messages are first sent to
+Gemini (`google-genai` SDK) for **intent classification** against a fixed label
+set (`delay_15` / `keep_schedule` / `skip_show` / `status` / `none`) with a JSON
+schema and a confidence threshold (`GEMINI_MIN_CONFIDENCE`, default 0.75). Below
+the threshold — or on any SDK/network error, or with no key — the deterministic
+keyword router decides. The model never writes group messages; wording stays in
+the concierge templates. `GET /healthz` shows `"reasoning": "gemini"` or
+`"keyword-only"`.
+
+### 3-minute setup
+
+**A. Get the API key (~1 min)**
+1. Go to <https://aistudio.google.com/apikey> — sign in as
+   guilherme.dantas.sp@gmail.com.
+2. **Create API key** → *Create API key in new project* (or pick the
+   `rir-concierge-2026` project).
+3. Copy the key → paste into `.env` as `GEMINI_API_KEY`.
+
+**B. Deploy with it**
+- Local: `docker compose up -d` (the key is read from `.env`).
+- Cloud Run: rerun `./deploy-cloudrun.ps1 ...` — it stores the key as the
+  `rir-gemini-key` secret automatically.
+
+**C. Point the Meta webhook at the URL (~2 min)**
+1. <https://developers.facebook.com> → your app → **WhatsApp ▸ Configuration**.
+2. **Callback URL:** `https://<cloud-run-url>/webhook/whatsapp`
+3. **Verify token:** the exact value of `WHATSAPP_VERIFY_TOKEN` in `.env`.
+4. Click **Verify and save** (the service answers the `hub.challenge` handshake).
+5. Under **Webhook fields**, subscribe to **messages**.
+6. Send a location pin or a message to the number → watch
+   `gcloud run services logs tail rir-concierge --region southamerica-east1`.
+
+For a real WhatsApp **group** (not a 1:1 number) use the Evolution provider —
+see `docker-compose.yml` `--profile evolution` and `HANDOFF/DEPARA_GORDON_2026-09-09b.md`.

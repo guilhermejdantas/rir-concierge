@@ -139,7 +139,18 @@ class Settings(BaseSettings):
     evolution_instance: str = "rir-concierge"
     evolution_api_key: str = ""
 
+    # -- Gemini reasoning engine (Google AI Studio) --------------- #
+    # Optional. Empty key => the deterministic keyword router is used as-is.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_min_confidence: float = Field(
+        default=0.75, ge=0.0, le=1.0,
+        description="Minimum classifier confidence before an intent is acted on; "
+        "below this the keyword router decides.",
+    )
+
     # -- Redis ----------------------------------------------------- #
+    # Empty string => in-process state store (fine for a single instance).
     redis_url: str = "redis://redis:6379/0"
     state_ttl_seconds: int = Field(default=6 * 3600, ge=60)
 

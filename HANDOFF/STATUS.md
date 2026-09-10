@@ -187,3 +187,25 @@ Rerun results (image `rir-concierge-app:latest`, **567 MB**):
 
 Once those exist: `docker compose up -d`, then Claude Code runs the calendar
 parser dry-run + full end-to-end (`-30 min` alert → `delay_15` patch).
+
+---
+
+## Claude Code — Cloud Run migration + Gemini reasoning (2026-09-09, commit pending)
+
+- `services/reasoning.py` — `GeminiReasoner` (google-genai SDK, Google AI Studio
+  key). Optional intent classifier in front of `handle_text`; keyword router is
+  the guaranteed fallback. `/healthz` → `"reasoning": "gemini" | "keyword-only"`.
+- `services/state.py` — `InMemoryStore` + `open_state_store()`. Empty `REDIS_URL`
+  or unreachable Redis → in-process store (correct for Cloud Run 1 instance).
+- `Dockerfile` / `main.py` — honour `$PORT` (Cloud Run injects it).
+- `deploy-cloudrun.ps1` + `.sh` — one-command Cloud Build → Cloud Run deploy to
+  `southamerica-east1`, secrets via Secret Manager, `--min/--max-instances 1
+  --no-cpu-throttling` so the scheduler keeps ticking, writes back `PUBLIC_BASE_URL`.
+- `.dockerignore` / `.gcloudignore` added.
+- requirements bumped for genai compat: `google-auth 2.58.0`, `httpx 0.28.1`,
+  `pydantic 2.13.5`, `+google-genai 2.22.0`.
+- Verified locally: `docker compose build` OK, `/healthz` shows
+  `state_store: Redis|InMemoryStore` + `reasoning`, `PORT=9090` override works,
+  empty `REDIS_URL` → InMemoryStore, keyword routing intact.
+- README: added "Deploy to Google Cloud Run" + "Gemini reasoning engine" with
+  the 3-minute AI Studio key + Meta webhook guide.

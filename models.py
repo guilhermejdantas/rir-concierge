@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -44,6 +44,21 @@ class WalkEstimate(BaseModel):
     distance_m: int = Field(..., ge=0)
     duration_min: int = Field(..., ge=0)
     method: str = Field(..., description="'distance_matrix' or 'haversine_fallback'.")
+
+
+class IntentResult(BaseModel):
+    """Classified intent for a free-text group message.
+
+    Doubles as the ``response_schema`` handed to the Gemini SDK, so keep it flat
+    and JSON-schema friendly (no unions beyond ``Literal``, no nested models).
+    """
+
+    intent: Literal[
+        "delay_15", "keep_schedule", "skip_show", "status", "none"
+    ] = Field(..., description="Best-matching concierge intent, or 'none'.")
+    confidence: float = Field(
+        0.0, ge=0.0, le=1.0, description="Calibrated probability the intent is correct."
+    )
 
 
 class CheckinPayload(BaseModel):

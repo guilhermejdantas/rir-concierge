@@ -43,10 +43,13 @@ COPY --chown=app:app . .
 
 USER app
 
+# Cloud Run overrides PORT (default 8080); locally it defaults to 8000.
+ENV PORT=8000
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request,sys; \
-    sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"
+    CMD python -c "import os,urllib.request,sys; \
+    sys.exit(0 if urllib.request.urlopen(f'http://localhost:{os.environ.get(\"PORT\",\"8000\")}/healthz').status==200 else 1)"
 
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Shell form so ${PORT} is expanded at runtime; exec keeps uvicorn as PID 1.
+CMD exec python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}

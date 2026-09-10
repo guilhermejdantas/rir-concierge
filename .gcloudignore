@@ -1,0 +1,18 @@
+# Uploaded to Cloud Build for `gcloud run deploy --source .`
+# Keep this lean — everything here is skipped from the build context.
+.git
+.gitignore
+.gcloudignore
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.env
+secrets
+HANDOFF
+n8n-workflow.json
+ZAPIER_SETUP.md
+README.md
+docker-compose.yml
+deploy-cloudrun.ps1
+deploy-cloudrun.sh

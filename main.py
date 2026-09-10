@@ -18,7 +18,6 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 import httpx
-import redis.asyncio as aioredis
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Query, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
@@ -28,6 +27,8 @@ from config import Settings, get_settings
 from models import CheckinPayload, Coordinates
 from services.google_calendar import GoogleCalendarService
 from services.maps import MapsService
+from services.reasoning import GeminiReasoner
+from services.state import StateStore, open_state_store
 from services.whatsapp import WhatsAppService
 
 logging.basicConfig(
@@ -42,8 +43,9 @@ class AppState:
 
     settings: Settings
     http: httpx.AsyncClient
-    redis: aioredis.Redis
+    redis: StateStore
     calendar: GoogleCalendarService
+    reasoner: GeminiReasoner
     scheduler: AsyncIOScheduler
 
     def build_concierge(self) -> tuple[Concierge, MapsService, WhatsAppService]:
@@ -55,7 +57,7 @@ class AppState:
         maps = MapsService(self.settings, client=self.http)
         whatsapp = WhatsAppService(self.settings, client=self.http)
         concierge = Concierge(
-            self.settings, self.calendar, maps, whatsapp, self.redis
+            self.settings, self.calendar, maps, whatsapp, self.redis, self.reasoner
         )
         return concierge, maps, whatsapp
 
@@ -78,10 +80,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     state.settings = settings
     state.http = httpx.AsyncClient(timeout=15.0)
-    state.redis = aioredis.from_url(
-        settings.redis_url, encoding="utf-8", decode_responses=True
-    )
+    state.redis = await open_state_store(settings.redis_url)
     state.calendar = GoogleCalendarService(settings)
+    state.reasoner = GeminiReasoner(settings)
 
     state.scheduler = AsyncIOScheduler(timezone=settings.festival_timezone)
     state.scheduler.add_job(
@@ -94,11 +95,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     state.scheduler.start()
     logger.info(
-        "Concierge up. provider=%s calendar=%s poll=%ss lead=%smin",
+        "Concierge up. provider=%s calendar=%s poll=%ss lead=%smin "
+        "state=%s reasoning=%s",
         settings.whatsapp_provider,
         settings.target_calendar_id,
         settings.scheduler_poll_seconds,
         settings.alert_lead_minutes,
+        type(state.redis).__name__,
+        "gemini" if state.reasoner.enabled else "keyword-only",
     )
     try:
         yield
@@ -121,16 +125,18 @@ app = FastAPI(
 # --------------------------------------------------------------------------- #
 @app.get("/healthz", response_class=JSONResponse)
 async def healthz() -> dict[str, Any]:
-    """Report process health and Redis connectivity."""
-    redis_ok = False
+    """Report process health and state-store connectivity."""
+    store_ok = False
     try:
-        redis_ok = bool(await state.redis.ping())
+        store_ok = bool(await state.redis.ping())
     except Exception:  # noqa: BLE001
-        redis_ok = False
+        store_ok = False
     return {
-        "status": "ok" if redis_ok else "degraded",
-        "redis": redis_ok,
+        "status": "ok" if store_ok else "degraded",
+        "redis": store_ok,
+        "state_store": type(state.redis).__name__,
         "provider": state.settings.whatsapp_provider,
+        "reasoning": "gemini" if state.reasoner.enabled else "keyword-only",
         "scheduler_running": state.scheduler.running,
     }
 
@@ -325,11 +331,13 @@ async def api_checkin(payload: CheckinPayload) -> JSONResponse:
 
 
 if __name__ == "__main__":  # pragma: no cover
+    import os
+
     import uvicorn
 
     uvicorn.run(
         "main:app",
         host="0.0.0.0",  # noqa: S104 - container binding
-        port=8000,
+        port=int(os.environ.get("PORT", "8000")),  # Cloud Run injects PORT
         reload=get_settings().app_env == "dev",
     )

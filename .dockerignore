@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.env
+secrets
+HANDOFF
+*.md
+n8n-workflow.json
+ZAPIER_SETUP.md
+deploy-cloudrun.*

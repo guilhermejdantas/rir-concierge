@@ -31,9 +31,9 @@ echo "==> Enabling required APIs"
 gcloud services enable \
   run.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com \
   artifactregistry.googleapis.com
-echo "==> Enabling optional APIs (calendar, distance matrix) — non-fatal"
+echo "==> Enabling optional APIs (calendar, distance matrix) - non-fatal"
 gcloud services enable calendar-json.googleapis.com distance-matrix-backend.googleapis.com \
-  || echo "   (skipped — enable manually if you use a Maps API key)"
+  || echo "   (skipped - enable manually if you use a Maps API key)"
 
 # ---- Secrets --------------------------------------------------------------- #
 set_secret() { # name  value  [file]
@@ -63,32 +63,32 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${RUNTIME_SA}" \
   --role="roles/secretmanager.secretAccessor" --condition=None >/dev/null
 
-# ---- Env vars (non-secret) ---------------------------------------------- #
-ENV_VARS=$(cat <<EOF | paste -sd'|' -
-APP_ENV=prod
-LOG_LEVEL=INFO
-REDIS_URL=
-GOOGLE_AUTH_MODE=oauth
-GOOGLE_OAUTH_TOKEN_FILE=/secrets/oauth_token.json
-TARGET_CALENDAR_ID=$(val TARGET_CALENDAR_ID guilherme.dantas.sp@gmail.com)
-OWNER_EMAIL=$(val OWNER_EMAIL guilherme.dantas.sp@gmail.com)
-FESTIVAL_TIMEZONE=$(val FESTIVAL_TIMEZONE America/Sao_Paulo)
-FESTIVAL_START_DATE=$(val FESTIVAL_START_DATE 2026-09-11)
-FESTIVAL_END_DATE=$(val FESTIVAL_END_DATE 2026-09-13)
-ALERT_LEAD_MINUTES=$(val ALERT_LEAD_MINUTES 30)
-SCHEDULER_POLL_SECONDS=$(val SCHEDULER_POLL_SECONDS 60)
-WHATSAPP_PROVIDER=$(val WHATSAPP_PROVIDER meta)
-WHATSAPP_GROUP_ID=$(val WHATSAPP_GROUP_ID)
-META_GRAPH_VERSION=$(val META_GRAPH_VERSION v20.0)
-META_PHONE_NUMBER_ID=$(val META_PHONE_NUMBER_ID)
-EVOLUTION_BASE_URL=$(val EVOLUTION_BASE_URL)
-EVOLUTION_INSTANCE=$(val EVOLUTION_INSTANCE rir-concierge)
-GEMINI_MODEL=$(val GEMINI_MODEL gemini-3.5-flash)
-EOF
-)
+# ---- Env vars -> temp YAML file (avoids delimiter/empty-value issues) --- #
+ENV_FILE="$(mktemp -t rir-env-XXXXXX.yaml)"
+trap 'rm -f "$ENV_FILE"' EXIT
+yaml_kv() { printf '%s: "%s"\n' "$1" "$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g')" >> "$ENV_FILE"; }
+: > "$ENV_FILE"
+yaml_kv APP_ENV                 prod
+yaml_kv LOG_LEVEL               INFO
+yaml_kv REDIS_URL               ""
+yaml_kv GOOGLE_AUTH_MODE        oauth
+yaml_kv GOOGLE_OAUTH_TOKEN_FILE /secrets/oauth_token.json
+yaml_kv TARGET_CALENDAR_ID      "$(val TARGET_CALENDAR_ID guilherme.dantas.sp@gmail.com)"
+yaml_kv OWNER_EMAIL             "$(val OWNER_EMAIL guilherme.dantas.sp@gmail.com)"
+yaml_kv FESTIVAL_TIMEZONE       "$(val FESTIVAL_TIMEZONE America/Sao_Paulo)"
+yaml_kv FESTIVAL_START_DATE     "$(val FESTIVAL_START_DATE 2026-09-11)"
+yaml_kv FESTIVAL_END_DATE       "$(val FESTIVAL_END_DATE 2026-09-13)"
+yaml_kv ALERT_LEAD_MINUTES      "$(val ALERT_LEAD_MINUTES 30)"
+yaml_kv SCHEDULER_POLL_SECONDS  "$(val SCHEDULER_POLL_SECONDS 60)"
+yaml_kv WHATSAPP_PROVIDER       "$(val WHATSAPP_PROVIDER meta)"
+yaml_kv WHATSAPP_GROUP_ID       "$(val WHATSAPP_GROUP_ID)"
+yaml_kv META_GRAPH_VERSION      "$(val META_GRAPH_VERSION v20.0)"
+yaml_kv META_PHONE_NUMBER_ID    "$(val META_PHONE_NUMBER_ID)"
+yaml_kv EVOLUTION_BASE_URL      "$(val EVOLUTION_BASE_URL)"
+yaml_kv EVOLUTION_INSTANCE      "$(val EVOLUTION_INSTANCE rir-concierge)"
+yaml_kv GEMINI_MODEL            "$(val GEMINI_MODEL gemini-3.5-flash)"
 
-SECRET_MOUNTS="/secrets/oauth_token.json=rir-oauth-token:latest"
-SECRET_ENV="WHATSAPP_VERIFY_TOKEN=rir-verify-token:latest,META_ACCESS_TOKEN=rir-meta-token:latest,GOOGLE_MAPS_API_KEY=rir-maps-key:latest,GEMINI_API_KEY=rir-gemini-key:latest,EVOLUTION_API_KEY=rir-evolution-key:latest"
+SECRETS_ARG="/secrets/oauth_token.json=rir-oauth-token:latest,WHATSAPP_VERIFY_TOKEN=rir-verify-token:latest,META_ACCESS_TOKEN=rir-meta-token:latest,GOOGLE_MAPS_API_KEY=rir-maps-key:latest,GEMINI_API_KEY=rir-gemini-key:latest,EVOLUTION_API_KEY=rir-evolution-key:latest"
 
 # ---- Deploy ------------------------------------------------------------ #
 echo "==> Building + deploying (Cloud Build from Dockerfile)"
@@ -100,8 +100,8 @@ gcloud run deploy "$SERVICE" \
   --cpu 1 --memory 512Mi \
   --min-instances 1 --max-instances 1 --no-cpu-throttling \
   --timeout 120 \
-  --set-env-vars "^|^${ENV_VARS}" \
-  --set-secrets "${SECRET_MOUNTS},${SECRET_ENV}"
+  --env-vars-file "$ENV_FILE" \
+  --set-secrets "${SECRETS_ARG}"
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
 echo "==> Service URL: $URL"

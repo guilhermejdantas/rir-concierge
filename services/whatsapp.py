@@ -181,19 +181,20 @@ class WhatsAppService:
                 }
             )
         else:
+            # Evolution v2.3 rejects empty row descriptions and empty footer.
             payload = {
                 "number": target,
-                "title": header or "Rock in Rio Concierge",
+                "title": (header or "Rock in Rio Concierge")[:60],
                 "description": text,
                 "buttonText": button_label,
-                "footerText": "",
+                "footerText": "Rock in Rio Concierge",
                 "sections": [
                     {
                         "title": section_title,
                         "rows": [
                             {
-                                "title": title,
-                                "description": desc or "",
+                                "title": title[:24],
+                                "description": (desc or title)[:72],
                                 "rowId": row_id,
                             }
                             for title, row_id, desc in rows[:10]

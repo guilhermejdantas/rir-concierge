@@ -58,10 +58,17 @@ set_secret rir-evolution-key "$(val EVOLUTION_API_KEY unset)"
 # ---- Grant runtime SA access to secrets ---------------------------------- #
 PROJ_NUM="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
 RUNTIME_SA="${PROJ_NUM}-compute@developer.gserviceaccount.com"
-echo "==> Granting secretAccessor to $RUNTIME_SA"
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:${RUNTIME_SA}" \
-  --role="roles/secretmanager.secretAccessor" --condition=None >/dev/null
+echo "==> Granting IAM roles to $RUNTIME_SA"
+# secretAccessor: Cloud Run runtime reads secrets.
+# cloudbuild.builds.builder: on newer projects the compute SA is also the Cloud
+#   Build SA and must read the uploaded source + push to Artifact Registry.
+for role in roles/secretmanager.secretAccessor roles/cloudbuild.builds.builder; do
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:${RUNTIME_SA}" \
+    --role="$role" --condition=None >/dev/null
+done
+echo "   (IAM changes can take up to a minute to propagate)"
+sleep 20
 
 # ---- Env vars -> temp YAML file (avoids delimiter/empty-value issues) --- #
 ENV_FILE="$(mktemp -t rir-env-XXXXXX.yaml)"

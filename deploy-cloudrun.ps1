@@ -103,10 +103,19 @@ Set-Secret -Name "rir-evolution-key" -Value (Val "EVOLUTION_API_KEY" "unset")
 $projNum = (& gcloud projects describe $ProjectId --format="value(projectNumber)").Trim()
 if ($LASTEXITCODE -ne 0 -or -not $projNum) { throw "Could not read project number for $ProjectId." }
 $runtimeSa = "$projNum-compute@developer.gserviceaccount.com"
-Write-Host "==> Granting secretAccessor to $runtimeSa"
-Invoke-GCloud @("projects", "add-iam-policy-binding", $ProjectId,
-    "--member=serviceAccount:$runtimeSa",
-    "--role=roles/secretmanager.secretAccessor", "--condition=None") | Out-Null
+# The compute SA is used BOTH as the Cloud Run runtime identity (needs to read
+# secrets) AND, on newer projects, as the Cloud Build service account (needs to
+# read the uploaded source from GCS and push the image to Artifact Registry).
+Write-Host "==> Granting IAM roles to $runtimeSa"
+foreach ($role in @(
+        "roles/secretmanager.secretAccessor",
+        "roles/cloudbuild.builds.builder")) {
+    Invoke-GCloud @("projects", "add-iam-policy-binding", $ProjectId,
+        "--member=serviceAccount:$runtimeSa",
+        "--role=$role", "--condition=None") | Out-Null
+}
+Write-Host "   (IAM changes can take up to a minute to propagate)"
+Start-Sleep -Seconds 20
 
 # ---- Env vars -> temp YAML file ------------------------------------- #
 $envValues = [ordered]@{

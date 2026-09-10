@@ -21,12 +21,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 from config import BUTTON_TO_POI, FESTIVAL_POIS, QUICK_CHECKIN_BUTTONS, Settings
 from models import Coordinates, FestivalShow, WalkEstimate
+from quiz_service import QuizService
 from services.google_calendar import CalendarError, GoogleCalendarService
 from services.maps import MapsService
 from services.reasoning import GeminiReasoner
@@ -34,6 +36,14 @@ from services.state import StateStore
 from services.whatsapp import WhatsAppService
 
 logger = logging.getLogger(__name__)
+
+_MENTION_RE = re.compile(r"@(\d{10,13})\b")
+
+
+def _mentions_in(text: str) -> list[str]:
+    """Phone numbers referenced as ``@<digits>`` in an outbound message."""
+    return _MENTION_RE.findall(text)
+
 
 # Redis keys.
 _KEY_ACTIVE_SHOW = "rir:active_show"          # JSON blob of the show an alert is open for
@@ -52,6 +62,7 @@ class Concierge:
         whatsapp: WhatsAppService,
         redis: StateStore,
         reasoner: Optional[GeminiReasoner] = None,
+        quiz: Optional[QuizService] = None,
     ) -> None:
         self._s = settings
         self._cal = calendar
@@ -59,6 +70,7 @@ class Concierge:
         self._wa = whatsapp
         self._redis = redis
         self._reasoner = reasoner
+        self._quiz = quiz or QuizService(redis)
         self._tz = ZoneInfo(settings.festival_timezone)
 
     # ================================================================== #
@@ -248,6 +260,36 @@ class Concierge:
         await self._wa.send_text(
             f"⏩ Ok, pulando *{show.artist}*. Aviso vocês no próximo show."
         )
+
+    # ================================================================== #
+    # Trivia quiz                                                         #
+    # ================================================================== #
+    async def run_quiz_round(self) -> None:
+        """Scheduler job: open the next trivia question in the group."""
+        try:
+            opened = await self._quiz.start_round()
+        except Exception:  # noqa: BLE001
+            logger.exception("Quiz round failed to open.")
+            return
+        if opened is None:
+            logger.info("Quiz bank exhausted; no round sent.")
+            return
+        text, buttons = opened
+        await self._wa.send_buttons(text, buttons)
+
+    async def handle_quiz_answer(
+        self, sender_jid: Optional[str], push_name: Optional[str], raw_choice: str
+    ) -> bool:
+        """Route a possible quiz answer. Returns True if it was consumed."""
+        reply = await self._quiz.submit_answer(sender_jid, push_name, raw_choice)
+        if reply is None:
+            return False
+        mentions = _mentions_in(reply)
+        await self._wa.send_text(reply, mentions=mentions or None)
+        return True
+
+    async def send_leaderboard(self) -> None:
+        await self._wa.send_text(await self._quiz.leaderboard_text())
 
     # ================================================================== #
     # Text intent routing                                                 #

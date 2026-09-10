@@ -27,6 +27,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from concierge import Concierge
 from config import Settings, get_settings
 from models import CheckinPayload, Coordinates
+from quiz_service import QuizService
 from services.google_calendar import GoogleCalendarService
 from services.maps import MapsService
 from services.reasoning import GeminiReasoner
@@ -48,6 +49,7 @@ class AppState:
     redis: StateStore
     calendar: GoogleCalendarService
     reasoner: GeminiReasoner
+    quiz: QuizService
     scheduler: AsyncIOScheduler
 
     def build_concierge(self) -> tuple[Concierge, MapsService, WhatsAppService]:
@@ -59,7 +61,8 @@ class AppState:
         maps = MapsService(self.settings, client=self.http)
         whatsapp = WhatsAppService(self.settings, client=self.http)
         concierge = Concierge(
-            self.settings, self.calendar, maps, whatsapp, self.redis, self.reasoner
+            self.settings, self.calendar, maps, whatsapp, self.redis,
+            self.reasoner, self.quiz,
         )
         return concierge, maps, whatsapp
 
@@ -136,6 +139,52 @@ def _schedule_announcements(scheduler: "AsyncIOScheduler", settings: Settings) -
         logger.info("Announcement scheduled: %s at %s", file.name, when.isoformat())
 
 
+async def _run_quiz_round() -> None:
+    """Scheduler job: open the next hourly trivia question."""
+    concierge, _, _ = state.build_concierge()
+    try:
+        await concierge.run_quiz_round()
+    except Exception:  # noqa: BLE001
+        logger.exception("Quiz round job failed.")
+
+
+def _schedule_quiz(scheduler: AsyncIOScheduler, settings: Settings) -> None:
+    """Register the hourly trivia rounds.
+
+    Thu 2026-09-10 09:00–21:00 and Fri 2026-09-11 09:00–20:00, one round on the
+    hour. Explicit start/end datetimes keep the cron unambiguous; a past window
+    simply schedules nothing.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from apscheduler.triggers.cron import CronTrigger
+
+    tz = ZoneInfo(settings.festival_timezone)
+    windows = [
+        ("quiz_thu", datetime(2026, 9, 10, 8, 59, tzinfo=tz),
+         datetime(2026, 9, 10, 21, 1, tzinfo=tz), "9-21"),
+        ("quiz_fri", datetime(2026, 9, 11, 8, 59, tzinfo=tz),
+         datetime(2026, 9, 11, 20, 1, tzinfo=tz), "9-20"),
+    ]
+    now = datetime.now(tz)
+    for job_id, start, end, hours in windows:
+        if end <= now:
+            logger.info("Quiz window %s already over; skipping.", job_id)
+            continue
+        scheduler.add_job(
+            _run_quiz_round,
+            CronTrigger(hour=hours, minute=0, start_date=start, end_date=end, timezone=tz),
+            id=job_id,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=300,
+        )
+        logger.info("Quiz rounds scheduled: %s (%s..%s, hours %s)",
+                    job_id, start.isoformat(), end.isoformat(), hours)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Create and tear down shared resources."""
@@ -145,6 +194,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state.redis = await open_state_store(settings.redis_url)
     state.calendar = GoogleCalendarService(settings)
     state.reasoner = GeminiReasoner(settings)
+    state.quiz = QuizService(state.redis)
 
     state.scheduler = AsyncIOScheduler(timezone=settings.festival_timezone)
     state.scheduler.add_job(
@@ -156,6 +206,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         coalesce=True,
     )
     _schedule_announcements(state.scheduler, settings)
+    _schedule_quiz(state.scheduler, settings)
     state.scheduler.start()
     logger.info(
         "Concierge up. provider=%s calendar=%s poll=%ss lead=%smin "
@@ -194,12 +245,20 @@ async def health() -> dict[str, Any]:
         store_ok = bool(await state.redis.ping())
     except Exception:  # noqa: BLE001
         store_ok = False
+    quiz_cursor = None
+    try:
+        raw = await state.redis.get("quiz:cursor")
+        quiz_cursor = int(raw) if raw else 0
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "status": "ok" if store_ok else "degraded",
         "redis": store_ok,
         "state_store": type(state.redis).__name__,
         "provider": state.settings.whatsapp_provider,
         "reasoning": "gemini" if state.reasoner.enabled else "keyword-only",
+        "quiz_round": quiz_cursor,
+        "scheduler_jobs": [j.id for j in state.scheduler.get_jobs()],
         "scheduler_running": state.scheduler.running,
     }
 
@@ -265,7 +324,9 @@ async def _dispatch(concierge: Concierge, msg: Any) -> None:
 
     if msg.kind == "button" and msg.button_id:
         bid = msg.button_id
-        if bid.startswith("checkin_"):
+        if bid.startswith("quiz_"):
+            await concierge.handle_quiz_answer(msg.sender, msg.push_name, bid)
+        elif bid.startswith("checkin_"):
             await concierge.handle_button_checkin(bid)
         elif bid == "delay_15":
             await concierge.handle_delay()
@@ -278,7 +339,14 @@ async def _dispatch(concierge: Concierge, msg: Any) -> None:
         return
 
     if msg.kind == "text" and msg.text:
-        await concierge.handle_text(msg.text)
+        text = msg.text.strip()
+        # Quiz takes precedence over the LLM/keyword router.
+        if QuizService.is_leaderboard_command(text):
+            await concierge.send_leaderboard()
+            return
+        if await concierge.handle_quiz_answer(msg.sender, msg.push_name, text):
+            return
+        await concierge.handle_text(text)
         return
 
     logger.debug("Ignoring message kind=%s", msg.kind)

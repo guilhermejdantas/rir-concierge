@@ -38,6 +38,19 @@ Sep 13 (`gcloud compute instances stop rir-vm --zone southamerica-east1-a`).
 
 - The 08:00 `bomdia` announcement already fired today (Sep 10) from the laptop -
   the file is now past-dated, so the VM will skip it (no double send).
+- **Quiz state continuity.** The trivia cursor + scoreboard live in the laptop's
+  Redis. A fresh VM = fresh Redis, so Friday's rounds would restart at question 1
+  and the Thursday scores would be lost. Before `docker compose down` on the
+  laptop, dump the state and restore it on the VM:
+  ```
+  # laptop
+  docker compose exec -T redis redis-cli --raw GET quiz:cursor > quiz_cursor.txt
+  docker compose exec -T redis redis-cli --raw GET quiz:scores > quiz_scores.txt
+  # VM (after the stack is up)
+  gcloud compute scp quiz_cursor.txt quiz_scores.txt rir-vm:/tmp/ --zone southamerica-east1-a
+  gcloud compute ssh rir-vm --zone southamerica-east1-a --command \
+    "cd /opt/rir && sudo docker compose exec -T redis sh -c 'redis-cli SET quiz:cursor \"$(cat /tmp/quiz_cursor.txt)\"; redis-cli SET quiz:scores \"$(cat /tmp/quiz_scores.txt)\"'"
+  ```
 - `WHATSAPP_GROUP_ID` (`120363430892898559@g.us`) does not change.
 - If your home/phone IP changes, re-open the firewall:
   `gcloud compute firewall-rules update rir-manager --source-ranges=<new-ip>/32`

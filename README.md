@@ -149,6 +149,9 @@ Foo Fighters — Palco Mundo
 | `Manter Horário` | Acknowledgement |
 | `⏩ Pular Show` / "pular" | Suppresses further nudges for that event |
 | "status" / "agenda" | Prints the next upcoming show |
+| Hourly 09:00–21:00 (Thu) / 09:00–20:00 (Fri) | Trivia round: a question + `A/B/C` buttons |
+| `A` / `B` / `C` (or the button) during a round | First correct answer wins +1 pt; celebration + leaderboard; wrong answers get "tente de novo" |
+| "placar" / "ranking" / "pontos" | Current tournament standings |
 | Open `PUBLIC_BASE_URL/checkin?u=<id>` | Browser high-accuracy GPS → same walk-estimate flow |
 
 ---

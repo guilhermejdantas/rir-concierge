@@ -42,6 +42,7 @@ class InboundMessage:
     button_id: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    push_name: Optional[str] = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -326,8 +327,13 @@ class WhatsAppService:
                 value = change.get("value", {})
                 metadata = value.get("metadata", {})
                 chat_id = metadata.get("phone_number_id", "")
+                contacts = {
+                    c.get("wa_id"): (c.get("profile") or {}).get("name")
+                    for c in value.get("contacts", [])
+                }
                 for msg in value.get("messages", []):
                     sender = msg.get("from", "")
+                    push_name = contacts.get(sender)
                     mtype = msg.get("type")
                     if mtype == "text":
                         out.append(
@@ -427,39 +433,40 @@ class WhatsAppService:
         if key.get("fromMe"):
             return None  # our own outbound, echoed back
         chat_id = key.get("remoteJid", "") or ""
-        sender = key.get("participant") or chat_id
+        sender = key.get("participant") or key.get("participantAlt") or chat_id
+        push_name = record.get("pushName")
         message = record.get("message") or {}
         if not isinstance(message, dict):
             return None
 
+        def _mk(**kw: Any) -> InboundMessage:
+            return InboundMessage(sender=sender, chat_id=chat_id, push_name=push_name, **kw)
+
         if "locationMessage" in message:
             loc = message["locationMessage"] or {}
-            return InboundMessage(
-                kind="location", sender=sender, chat_id=chat_id,
+            return _mk(
+                kind="location",
                 latitude=_to_float(loc.get("degreesLatitude")),
                 longitude=_to_float(loc.get("degreesLongitude")),
                 raw=record,
             )
         if "buttonsResponseMessage" in message:
             br = message["buttonsResponseMessage"] or {}
-            return InboundMessage(
-                kind="button", sender=sender, chat_id=chat_id,
-                button_id=br.get("selectedButtonId"),
+            return _mk(
+                kind="button", button_id=br.get("selectedButtonId"),
                 text=br.get("selectedDisplayText"), raw=record,
             )
         if "templateButtonReplyMessage" in message:
             tr = message["templateButtonReplyMessage"] or {}
-            return InboundMessage(
-                kind="button", sender=sender, chat_id=chat_id,
-                button_id=tr.get("selectedId"),
+            return _mk(
+                kind="button", button_id=tr.get("selectedId"),
                 text=tr.get("selectedDisplayText"), raw=record,
             )
         if "listResponseMessage" in message:
             lr = message["listResponseMessage"] or {}
-            row = (lr.get("singleSelectReply") or {})
-            return InboundMessage(
-                kind="button", sender=sender, chat_id=chat_id,
-                button_id=row.get("selectedRowId"),
+            row = lr.get("singleSelectReply") or {}
+            return _mk(
+                kind="button", button_id=row.get("selectedRowId"),
                 text=lr.get("title"), raw=record,
             )
         text = (
@@ -467,9 +474,7 @@ class WhatsAppService:
             or (message.get("extendedTextMessage") or {}).get("text")
         )
         if text:
-            return InboundMessage(
-                kind="text", sender=sender, chat_id=chat_id, text=text, raw=record
-            )
+            return _mk(kind="text", text=text, raw=record)
         return None
 
 

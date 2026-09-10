@@ -61,6 +61,27 @@ class IntentResult(BaseModel):
     )
 
 
+class QuizQuestion(BaseModel):
+    """One multiple-choice trivia question."""
+
+    id: int = Field(..., ge=1)
+    topic: str
+    prompt: str
+    options: dict[str, str] = Field(
+        ..., description="Keys 'A'/'B'/'C' -> option text."
+    )
+    correct: str = Field(..., pattern="^[ABC]$")
+
+    def render(self) -> str:
+        """WhatsApp-formatted question block."""
+        lines = [f"🧠 *TRIVIA ROCK IN RIO* — _{self.topic}_", "", f"*{self.prompt}*", ""]
+        for key in ("A", "B", "C"):
+            lines.append(f"*{key})* {self.options[key]}")
+        lines.append("")
+        lines.append("_Responda com A, B ou C (ou toque no botão)._")
+        return "\n".join(lines)
+
+
 class CheckinPayload(BaseModel):
     """Body accepted by ``POST /api/checkin`` from the browser fallback page."""
 

@@ -13,9 +13,10 @@ in a :class:`~services.state.StateStore` — Redis when configured (so multiple
 app replicas share the alert lock), otherwise an in-process fallback.
 
 Free-text group messages are routed by a deterministic keyword matcher. When a
-:class:`~services.reasoning.GeminiReasoner` is supplied (Google AI Studio API
-key present) it is consulted first as a fuzzy intent classifier, with the
-keyword matcher as the guaranteed fallback.
+:class:`~services.reasoning.Reasoner` is supplied and enabled (Claude or
+Gemini, per :func:`services.reasoning.build_reasoner`) it is consulted first
+as a fuzzy intent classifier, with the keyword matcher as the guaranteed
+fallback.
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ from models import Coordinates, FestivalShow, WalkEstimate
 from quiz_service import QuizService
 from services.google_calendar import CalendarError, GoogleCalendarService
 from services.maps import MapsService
-from services.reasoning import GeminiReasoner
+from services.reasoning import Reasoner
 from services.state import StateStore
 from services.whatsapp import WhatsAppService
 
@@ -61,7 +62,7 @@ class Concierge:
         maps: MapsService,
         whatsapp: WhatsAppService,
         redis: StateStore,
-        reasoner: Optional[GeminiReasoner] = None,
+        reasoner: Optional[Reasoner] = None,
         quiz: Optional[QuizService] = None,
     ) -> None:
         self._s = settings
@@ -298,7 +299,7 @@ class Concierge:
         """Interpret a free-text group message and act on a recognised intent.
 
         Resolution order:
-          1. Gemini classifier (if enabled and confident) →
+          1. LLM classifier (Claude or Gemini, if enabled and confident) →
           2. deterministic keyword matcher →
           3. stay silent (it is a group chat).
         """
@@ -322,8 +323,8 @@ class Concierge:
             else:
                 if self._reasoner.is_confident(result):
                     logger.info(
-                        "Gemini intent=%s conf=%.2f for %r",
-                        result.intent, result.confidence, text[:80],
+                        "%s intent=%s conf=%.2f for %r",
+                        self._reasoner.label, result.intent, result.confidence, text[:80],
                     )
                     return result.intent
         return self._keyword_intent(text)

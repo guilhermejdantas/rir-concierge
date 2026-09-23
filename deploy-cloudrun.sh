@@ -53,6 +53,7 @@ set_secret rir-verify-token  "$(val WHATSAPP_VERIFY_TOKEN change-me)"
 set_secret rir-meta-token    "$(val META_ACCESS_TOKEN unset)"
 set_secret rir-maps-key      "$(val GOOGLE_MAPS_API_KEY unset)"
 set_secret rir-gemini-key    "$(val GEMINI_API_KEY unset)"
+set_secret rir-claude-key    "$(val ANTHROPIC_API_KEY unset)"
 set_secret rir-evolution-key "$(val EVOLUTION_API_KEY unset)"
 
 # ---- Grant runtime SA access to secrets ---------------------------------- #
@@ -94,8 +95,10 @@ yaml_kv META_PHONE_NUMBER_ID    "$(val META_PHONE_NUMBER_ID)"
 yaml_kv EVOLUTION_BASE_URL      "$(val EVOLUTION_BASE_URL)"
 yaml_kv EVOLUTION_INSTANCE      "$(val EVOLUTION_INSTANCE rir-concierge)"
 yaml_kv GEMINI_MODEL            "$(val GEMINI_MODEL gemini-3.5-flash)"
+yaml_kv REASONING_PROVIDER      "$(val REASONING_PROVIDER auto)"
+yaml_kv CLAUDE_MODEL            "$(val CLAUDE_MODEL claude-opus-5)"
 
-SECRETS_ARG="/secrets/oauth_token.json=rir-oauth-token:latest,WHATSAPP_VERIFY_TOKEN=rir-verify-token:latest,META_ACCESS_TOKEN=rir-meta-token:latest,GOOGLE_MAPS_API_KEY=rir-maps-key:latest,GEMINI_API_KEY=rir-gemini-key:latest,EVOLUTION_API_KEY=rir-evolution-key:latest"
+SECRETS_ARG="/secrets/oauth_token.json=rir-oauth-token:latest,WHATSAPP_VERIFY_TOKEN=rir-verify-token:latest,META_ACCESS_TOKEN=rir-meta-token:latest,GOOGLE_MAPS_API_KEY=rir-maps-key:latest,GEMINI_API_KEY=rir-gemini-key:latest,ANTHROPIC_API_KEY=rir-claude-key:latest,EVOLUTION_API_KEY=rir-evolution-key:latest"
 
 # ---- Deploy ------------------------------------------------------------ #
 echo "==> Building + deploying (Cloud Build from Dockerfile)"

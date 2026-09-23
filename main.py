@@ -30,7 +30,7 @@ from models import CheckinPayload, Coordinates
 from quiz_service import QuizService
 from services.google_calendar import GoogleCalendarService
 from services.maps import MapsService
-from services.reasoning import GeminiReasoner
+from services.reasoning import Reasoner, build_reasoner
 from services.state import StateStore, open_state_store
 from services.whatsapp import WhatsAppService
 
@@ -48,7 +48,7 @@ class AppState:
     http: httpx.AsyncClient
     redis: StateStore
     calendar: GoogleCalendarService
-    reasoner: GeminiReasoner
+    reasoner: Reasoner
     quiz: QuizService
     scheduler: AsyncIOScheduler
 
@@ -193,7 +193,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state.http = httpx.AsyncClient(timeout=15.0)
     state.redis = await open_state_store(settings.redis_url)
     state.calendar = GoogleCalendarService(settings)
-    state.reasoner = GeminiReasoner(settings)
+    state.reasoner = build_reasoner(settings)
     state.quiz = QuizService(state.redis)
 
     state.scheduler = AsyncIOScheduler(timezone=settings.festival_timezone)
@@ -216,7 +216,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.scheduler_poll_seconds,
         settings.alert_lead_minutes,
         type(state.redis).__name__,
-        "gemini" if state.reasoner.enabled else "keyword-only",
+        state.reasoner.label if state.reasoner.enabled else "keyword-only",
     )
     try:
         yield
@@ -256,7 +256,7 @@ async def health() -> dict[str, Any]:
         "redis": store_ok,
         "state_store": type(state.redis).__name__,
         "provider": state.settings.whatsapp_provider,
-        "reasoning": "gemini" if state.reasoner.enabled else "keyword-only",
+        "reasoning": state.reasoner.label if state.reasoner.enabled else "keyword-only",
         "quiz_round": quiz_cursor,
         "scheduler_jobs": [j.id for j in state.scheduler.get_jobs()],
         "scheduler_running": state.scheduler.running,

@@ -97,6 +97,7 @@ Set-Secret -Name "rir-verify-token"  -Value (Val "WHATSAPP_VERIFY_TOKEN" "change
 Set-Secret -Name "rir-meta-token"    -Value (Val "META_ACCESS_TOKEN" "unset")
 Set-Secret -Name "rir-maps-key"      -Value (Val "GOOGLE_MAPS_API_KEY" "unset")
 Set-Secret -Name "rir-gemini-key"    -Value (Val "GEMINI_API_KEY" "unset")
+Set-Secret -Name "rir-claude-key"    -Value (Val "ANTHROPIC_API_KEY" "unset")
 Set-Secret -Name "rir-evolution-key" -Value (Val "EVOLUTION_API_KEY" "unset")
 
 # ---- Grant the runtime service account access to the secrets --------- #
@@ -138,6 +139,8 @@ $envValues = [ordered]@{
     EVOLUTION_BASE_URL      = (Val "EVOLUTION_BASE_URL" "")
     EVOLUTION_INSTANCE      = (Val "EVOLUTION_INSTANCE" "rir-concierge")
     GEMINI_MODEL            = (Val "GEMINI_MODEL" "gemini-3.5-flash")
+    REASONING_PROVIDER      = (Val "REASONING_PROVIDER" "auto")
+    CLAUDE_MODEL            = (Val "CLAUDE_MODEL" "claude-opus-5")
 }
 
 $envFile = Join-Path ([System.IO.Path]::GetTempPath()) ("rir-env-" + [System.Guid]::NewGuid().ToString("N") + ".yaml")
@@ -156,6 +159,7 @@ $secretsArg = @(
     "META_ACCESS_TOKEN=rir-meta-token:latest",
     "GOOGLE_MAPS_API_KEY=rir-maps-key:latest",
     "GEMINI_API_KEY=rir-gemini-key:latest",
+    "ANTHROPIC_API_KEY=rir-claude-key:latest",
     "EVOLUTION_API_KEY=rir-evolution-key:latest"
 ) -join ","
 

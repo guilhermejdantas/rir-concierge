@@ -139,6 +139,24 @@ class Settings(BaseSettings):
     evolution_instance: str = "rir-concierge"
     evolution_api_key: str = ""
 
+    # -- Reasoning engine selection ------------------------------- #
+    # "auto" (default) prefers Claude when ANTHROPIC_API_KEY is set, falls
+    # back to Gemini when only GEMINI_API_KEY is set, otherwise the
+    # deterministic keyword router handles every message. "claude"/"gemini"
+    # force that engine (raising at startup if its key is missing); "none"
+    # disables model-based classification even if keys are present.
+    reasoning_provider: Literal["auto", "claude", "gemini", "none"] = "auto"
+
+    # -- Claude reasoning engine (Anthropic API) ------------------- #
+    # Optional. Empty key => not selected by "auto".
+    anthropic_api_key: str = ""
+    claude_model: str = "claude-opus-5"
+    claude_min_confidence: float = Field(
+        default=0.75, ge=0.0, le=1.0,
+        description="Minimum classifier confidence before an intent is acted on; "
+        "below this the keyword router decides.",
+    )
+
     # -- Gemini reasoning engine (Google AI Studio) --------------- #
     # Optional. Empty key => the deterministic keyword router is used as-is.
     gemini_api_key: str = ""
